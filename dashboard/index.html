@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TERRA-FOVEA Live Map</title>
+<link rel="icon" href="data:,">
+<style>
+/* Layout: one-screen perception console. 3D map fills the left; a fixed evidence column on the right. Single dark theme by choice. */
+:root{
+  color-scheme: dark;
+  --bg:#0a0e13; --panel:#111822; --panel2:#0e141c; --line:#1f2b3a; --text:#d9e2ec; --dim:#8494a8;
+  --accent:#ffd166; --good:#3ddc97; --warn:#ffb454; --crit:#ff5d73; --info:#4aa3ff;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--text);font:13px/1.4 var(--font);display:flex;flex-direction:column;overflow:hidden}
+header{display:flex;align-items:center;gap:14px;padding:8px 14px;border-bottom:1px solid var(--line);background:var(--panel2);flex-wrap:wrap}
+header h1{font-size:14px;margin:0;letter-spacing:.08em;font-weight:700}
+header h1 span{color:var(--accent)}
+header .sub{color:var(--dim);font-size:12px}
+.spacer{flex:1}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.seg button{background:transparent;color:var(--dim);border:0;border-right:1px solid var(--line);padding:5px 10px;font:12px var(--font);cursor:pointer}
+.seg button:last-child{border-right:0}
+.seg button:hover{color:var(--text)}
+.seg button.on{background:var(--accent);color:#1a1300;font-weight:600}
+button:focus-visible,input:focus-visible{outline:2px solid var(--info);outline-offset:1px}
+main{flex:1;display:flex;min-height:0}
+#stage{position:relative;flex:1;min-width:0;background:radial-gradient(ellipse at 50% 30%,#101823 0%,#0a0e13 70%)}
+#gl{width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+#gl:active{cursor:grabbing}
+#labels{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.tag{position:absolute;transform:translate(-50%,-100%);font:11px var(--mono);padding:1px 5px;border-radius:3px;background:rgba(10,14,19,.82);border:1px solid var(--line);white-space:nowrap}
+.tag.mov{border-color:var(--info);color:#bfe0ff}
+.hud{position:absolute;left:12px;top:12px;display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+.chips{display:flex;gap:6px;flex-wrap:wrap;max-width:560px}
+.chip{font:12px var(--font);padding:4px 9px;border-radius:999px;border:1px solid var(--line);background:rgba(17,24,34,.9);display:flex;gap:6px;align-items:center}
+.chip i{width:8px;height:8px;border-radius:50%;display:inline-block}
+.chip.crit{border-color:var(--crit);color:#ffd3da}.chip.crit i{background:var(--crit)}
+.chip.warn{border-color:var(--warn);color:#ffe2bd}.chip.warn i{background:var(--warn)}
+.chip.info{border-color:var(--info);color:#cfe6ff}.chip.info i{background:var(--info)}
+.chip.ok{color:var(--dim)}.chip.ok i{background:var(--good)}
+#legend{position:absolute;left:12px;bottom:12px;background:rgba(17,24,34,.9);border:1px solid var(--line);border-radius:8px;padding:8px 10px;max-width:420px}
+#legend b{display:block;font-size:11px;color:var(--dim);font-weight:600;letter-spacing:.06em;text-transform:uppercase;margin-bottom:5px}
+#legend .row{display:flex;flex-wrap:wrap;gap:4px 12px}
+#legend .k{display:flex;align-items:center;gap:5px;font-size:12px}
+#legend .k i{width:11px;height:11px;border-radius:2px;display:inline-block}
+#mini{position:absolute;right:12px;bottom:12px;border:1px solid var(--line);border-radius:8px;background:rgba(10,14,19,.92)}
+#minicap{position:absolute;right:12px;bottom:238px;font-size:11px;color:var(--dim);background:rgba(10,14,19,.8);padding:2px 6px;border-radius:4px}
+#help{position:absolute;right:12px;top:12px;color:var(--dim);font-size:11px;text-align:right;background:rgba(10,14,19,.6);padding:4px 8px;border-radius:6px}
+aside{width:348px;flex:none;border-left:1px solid var(--line);background:var(--panel);overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:12px}
+section{border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:var(--panel2)}
+section h2{font-size:11px;margin:0 0 8px;color:var(--dim);letter-spacing:.08em;text-transform:uppercase;font-weight:600}
+.big{display:flex;gap:14px;align-items:baseline;flex-wrap:wrap}
+.big .v{font:600 26px/1 var(--mono);font-variant-numeric:tabular-nums}
+.big .u{color:var(--dim);font-size:12px}
+.kv{display:grid;grid-template-columns:1fr auto;gap:2px 10px;font-variant-numeric:tabular-nums}
+.kv span:nth-child(odd){color:var(--dim)}
+.kv span:nth-child(even){font-family:var(--mono);text-align:right}
+.bar{height:14px;border-radius:3px;background:#17202c;overflow:hidden;display:flex}
+.bar div{height:100%}
+.brow{display:grid;grid-template-columns:118px 1fr 74px;gap:8px;align-items:center;margin:4px 0;font-size:12px}
+.brow .n{font-family:var(--mono);text-align:right;font-variant-numeric:tabular-nums}
+.brow.me .l{color:var(--accent);font-weight:600}
+.note{color:var(--dim);font-size:11px;margin-top:6px}
+.stages{display:grid;grid-template-columns:auto 1fr auto;gap:3px 8px;font-size:12px;margin-top:8px;align-items:center}
+.stages i{width:9px;height:9px;border-radius:2px;display:inline-block}
+.stages .n{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right}
+table{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums}
+th{font-weight:600;color:var(--dim);text-align:left;font-size:11px;padding:2px 4px;border-bottom:1px solid var(--line)}
+td{padding:3px 4px;border-bottom:1px solid #161f2b;font-family:var(--mono)}
+td.c{font-family:var(--font)}
+.pill{font:11px var(--font);padding:1px 6px;border-radius:999px;border:1px solid var(--line);color:var(--dim)}
+.pill.mov{border-color:var(--info);color:#bfe0ff}
+#scrub{display:none;align-items:center;gap:8px}
+#scrub input{width:180px}
+#err{position:absolute;inset:0;display:none;align-items:center;justify-content:center;text-align:center;padding:24px;color:var(--warn)}
+@media (max-width:900px){main{flex-direction:column}aside{width:auto;border-left:0;border-top:1px solid var(--line);max-height:46%}#mini,#minicap,#help{display:none}}
+</style>
+</head>
+<body>
+<header>
+  <h1>TERRA<span>-FOVEA</span></h1>
+  <span class="sub" id="src">connecting</span>
+  <span class="spacer"></span>
+  <span id="scrub"><button id="play" class="pillbtn" style="background:transparent;border:1px solid var(--line);color:var(--text);border-radius:6px;padding:4px 10px;cursor:pointer">Pause</button><input id="pos" type="range" min="0" max="0" value="0" aria-label="Replay position"></span>
+  <div class="seg" id="policy" title="Resolution policy (live mode restarts the map)">
+    <button data-v="risk" class="on">Risk-adaptive</button><button data-v="distance">Distance only</button><button data-v="uniform_coarse">Uniform 40 cm</button>
+  </div>
+  <div class="seg" id="clr" title="Ghost clearing"><button data-v="1" class="on">Ghost clearing on</button><button data-v="0">off</button></div>
+  <div class="seg" id="mode" title="Colour by (keys 1-6)">
+    <button data-v="0" class="on">Semantic</button><button data-v="5">Drivable</button><button data-v="2">Resolution</button><button data-v="3">Risk</button><button data-v="1">Height</button><button data-v="4">Confidence</button>
+  </div>
+  <div class="seg" id="cam"><button data-v="chase" class="on">Chase</button><button data-v="top">Top</button><button data-v="wide">Wide</button></div>
+</header>
+<main>
+  <div id="stage">
+    <canvas id="gl"></canvas>
+    <div id="labels"></div>
+    <div class="hud"><div class="chips" id="chips"></div></div>
+    <div id="help">drag to orbit &middot; wheel to zoom &middot; right-drag to pan</div>
+    <div id="legend"><b id="legT">Semantic class</b><div class="row" id="legR"></div></div>
+    <div id="minicap">where the cells are spent (top view, 200 m)</div>
+    <canvas id="mini" width="220" height="220"></canvas>
+    <div id="err"></div>
+  </div>
+  <aside>
+    <section>
+      <h2>Pipeline speed</h2>
+      <div class="big"><span><span class="v" id="fps">0</span> <span class="u">FPS</span></span><span><span class="v" id="ms">0</span> <span class="u">ms per sweep</span></span></div>
+      <div class="bar" id="stbar" style="margin-top:8px"></div>
+      <div class="stages" id="stlist"></div>
+      <div class="note" id="ptsnote"></div>
+    </section>
+    <section>
+      <h2>Map memory, same scene</h2>
+      <div id="mem"></div>
+      <div class="note" id="memnote"></div>
+    </section>
+    <section>
+      <h2>Cells by resolution</h2>
+      <div class="bar" id="lvbar"></div>
+      <div class="stages" id="lvlist"></div>
+    </section>
+    <section>
+      <h2>Tracked objects</h2>
+      <table><thead><tr><th>ID</th><th>Class</th><th>Range</th><th>Speed</th><th>State</th></tr></thead><tbody id="trk"></tbody></table>
+    </section>
+    <section>
+      <h2>This sweep</h2>
+      <div class="kv" id="kv"></div>
+    </section>
+  </aside>
+</main>
+<script>
+"use strict";
+const CLS = ["road","terrain","building","pole","vegetation","vehicle","pedestrian","other"];
+const CLS_COL = [[70,78,92],[96,140,82],[214,138,62],[240,214,80],[52,168,108],[66,148,255],[255,76,110],[170,120,220]];
+const LV_COL = [[255,225,105],[255,159,67],[232,80,139],[123,76,201],[58,63,143],[40,44,90]];
+const LV_NAME = ["5 cm","10 cm","20 cm","40 cm","80 cm","1.6 m"];
+const ST_COL = {triage:"#4aa3ff",network:"#ffd166",policy:"#e8508b",fusion:"#3ddc97",tracking:"#b48cff",clearing:"#ff9f43"};
+const ST_NAME = {triage:"Geometry triage",network:"Neural segmentation",policy:"Risk plan + regrid",fusion:"2.5D fusion",tracking:"Tracking",clearing:"Ghost clearing"};
+const $ = id => document.getElementById(id);
+const rgb = c => `rgb(${c[0]},${c[1]},${c[2]})`;
+let mode = 0, frame = null, live = true, paused = false;
+
+/* ---------------- WebGL ---------------- */
+const canvas = $("gl");
+const gl = canvas.getContext("webgl2", {antialias:true, alpha:false});
+function fail(msg){ const e=$("err"); e.style.display="flex"; e.textContent=msg; }
+if(!gl){ fail("This dashboard needs WebGL2. Open it in a current Chrome, Edge or Firefox."); }
+
+const VS = `#version 300 es
+precision highp float;
+layout(location=0) in vec3 aPos;
+layout(location=1) in vec3 aNrm;
+layout(location=2) in vec2 iXY;
+layout(location=3) in vec3 iZ;
+layout(location=4) in vec4 iMeta;   // levels, cls, flags, conf
+layout(location=5) in vec2 iMeta2;  // risk, neg
+uniform mat4 uVP; uniform int uMode; uniform int uPass; uniform float uTime;
+uniform vec3 uCls[8]; uniform vec3 uLv[6];
+out vec3 vCol; out vec2 vUV; out float vTop; out float vAlpha; out float vDist;
+vec3 ramp(float t){ t=clamp(t,0.,1.);
+  vec3 a=vec3(.13,.16,.36), b=vec3(.15,.50,.56), c=vec3(.48,.80,.38), d=vec3(.99,.88,.30);
+  return t<.33? mix(a,b,t/.33) : t<.66? mix(b,c,(t-.33)/.33) : mix(c,d,(t-.66)/.34); }
+void main(){
+  float lv = mod(iMeta.x,16.), dlv = floor(iMeta.x/16.);
+  float size = 0.05*exp2(dlv);
+  int cls = int(iMeta.y); int flags = int(iMeta.z);
+  bool blocked=(flags&1)!=0, dyn=(flags&2)!=0, hole=(flags&4)!=0, over=(flags&8)!=0, corr=(flags&16)!=0;
+  float zg=iZ.x*.01, zt=iZ.y*.01, zc=iZ.z*.01;
+  float z = uPass==2 ? zc + aPos.z*0.04 : (uPass==0 ? mix(zg, max(zt,zg), aPos.z) : zg);
+  if(hole && uPass==0) z = zg - 0.02;
+  vec2 xy = iXY*0.025 + (aPos.xy-0.5)*size;
+  gl_Position = uVP*vec4(xy, z, 1.);
+  vDist = length(xy);
+  vec3 base = cls<8 ? uCls[cls] : vec3(.30,.33,.38);
+  vec3 col; float a=1.;
+  if(uMode==0){ col=base; if(uPass==1) col*= (cls==0? .62 : .70);
+    if(hole) col=vec3(.92,.20,.86); if(dyn) col=mix(col,vec3(1.),.25+.2*sin(uTime*6.));
+    if(uPass==2){ col=vec3(.42,.72,1.); a=.42; } }
+  else if(uMode==1){ float h = uPass==2? zc : (uPass==0? max(zt,zg):zg); col=ramp((h+.4)/5.); if(uPass==2) a=.5; }
+  else if(uMode==2){ col=uLv[int(lv)]; if(uPass==1) col*=.55; if(uPass==2) a=.0; }
+  else if(uMode==3){ float r=iMeta2.x/255.; col=mix(vec3(.10,.14,.20), r<.5? mix(vec3(.25,.35,.75),vec3(1.,.72,.2),r*2.) : mix(vec3(1.,.72,.2),vec3(1.,.25,.3),(r-.5)*2.), smoothstep(0.,.15,r)+.0);
+    if(uPass==0) col=mix(col,vec3(.85),.25); if(uPass==2) a=0.; }
+  else if(uMode==4){ float c=iMeta.w/255.; col = cls<8 ? mix(vec3(.95,.25,.3), vec3(.2,.85,.5), smoothstep(.4,.95,c)) : vec3(.25,.27,.3); if(uPass==1) col*=.6; if(uPass==2) a=0.; }
+  else { col = blocked? vec3(.95,.28,.33) : (cls==1? vec3(.80,.60,.22) : vec3(.16,.62,.42));
+    if(uPass==1) col*=.7; if(hole) col=vec3(.92,.20,.86); if(dyn) col=vec3(.25,.80,1.);
+    if(uPass==2){ col=vec3(.42,.72,1.); a=.42; } }
+  if(corr && uPass==1 && uMode!=2) col = mix(col, vec3(1.,.82,.4), .10);
+  float lit = aNrm.z>.5? 1. : .62+.22*abs(aNrm.x)+.08*abs(aNrm.y);
+  vCol = col*lit; vUV=aPos.xy; vTop=aNrm.z; vAlpha=a;
+}`;
+const FS = `#version 300 es
+precision highp float;
+in vec3 vCol; in vec2 vUV; in float vTop; in float vAlpha; in float vDist;
+out vec4 o;
+void main(){
+  if(vAlpha<=0.) discard;
+  vec3 c=vCol;
+  if(vTop>.5){ float e=min(min(vUV.x,1.-vUV.x),min(vUV.y,1.-vUV.y)); float w=max(fwidth(vUV.x),fwidth(vUV.y))*1.3;
+    float k=1.-smoothstep(.12,.38,w); c*= mix(1., mix(.62,1.,smoothstep(0.,w,e)), k); }
+  c = mix(c, vec3(.04,.055,.075), smoothstep(70.,125.,vDist)*.75);
+  o=vec4(c, vAlpha);
+}`;
+const LVS = `#version 300 es
+layout(location=0) in vec3 p; layout(location=1) in vec4 c; uniform mat4 uVP; out vec4 vc;
+void main(){ gl_Position=uVP*vec4(p,1.); vc=c; }`;
+const LFS = `#version 300 es
+precision mediump float; in vec4 vc; out vec4 o; void main(){ o=vc; }`;
+function prog(vs,fs){ const p=gl.createProgram();
+  for(const [t,s] of [[gl.VERTEX_SHADER,vs],[gl.FRAGMENT_SHADER,fs]]){ const sh=gl.createShader(t); gl.shaderSource(sh,s); gl.compileShader(sh);
+    if(!gl.getShaderParameter(sh,gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh)); gl.attachShader(p,sh); }
+  gl.linkProgram(p); if(!gl.getProgramParameter(p,gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p)); return p; }
+let P, LP, cube, inst, lineBuf, U={}, LU={};
+function initGL(){
+  P=prog(VS,FS); LP=prog(LVS,LFS);
+  for(const n of ["uVP","uMode","uPass","uTime","uCls","uLv"]) U[n]=gl.getUniformLocation(P,n);
+  LU.uVP=gl.getUniformLocation(LP,"uVP");
+  // unit box: top face first (6 verts), then 4 sides (24 verts)
+  const f=(a,b,c,d,n)=>[a,b,c,a,c,d].flatMap(v=>[...v,...n]);
+  const v=[...f([0,0,1],[1,0,1],[1,1,1],[0,1,1],[0,0,1]),
+           ...f([0,0,0],[1,0,0],[1,0,1],[0,0,1],[0,-1,0]), ...f([1,0,0],[1,1,0],[1,1,1],[1,0,1],[1,0,0]),
+           ...f([1,1,0],[0,1,0],[0,1,1],[1,1,1],[0,1,0]),  ...f([0,1,0],[0,0,0],[0,0,1],[0,1,1],[-1,0,0])];
+  cube=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,cube); gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(v),gl.STATIC_DRAW);
+  inst=gl.createBuffer(); lineBuf=gl.createBuffer();
+  gl.enable(gl.DEPTH_TEST);
+}
+function bindInst(offsetCells){
+  const o=offsetCells*16;
+  gl.bindBuffer(gl.ARRAY_BUFFER,cube);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0,3,gl.FLOAT,false,24,0); gl.vertexAttribDivisor(0,0);
+  gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1,3,gl.FLOAT,false,24,12); gl.vertexAttribDivisor(1,0);
+  gl.bindBuffer(gl.ARRAY_BUFFER,inst);
+  gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2,2,gl.SHORT,false,16,o);   gl.vertexAttribDivisor(2,1);
+  gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3,3,gl.SHORT,false,16,o+4); gl.vertexAttribDivisor(3,1);
+  gl.enableVertexAttribArray(4); gl.vertexAttribPointer(4,4,gl.UNSIGNED_BYTE,false,16,o+10); gl.vertexAttribDivisor(4,1);
+  gl.enableVertexAttribArray(5); gl.vertexAttribPointer(5,2,gl.UNSIGNED_BYTE,false,16,o+14); gl.vertexAttribDivisor(5,1);
+}
+
+/* ---------------- camera ---------------- */
+const cam={yaw:Math.PI, pitch:0.52, dist:42, tx:10, ty:0, tz:0};
+const PRESET={chase:{yaw:Math.PI,pitch:.52,dist:42,tx:10,ty:0}, top:{yaw:Math.PI,pitch:1.5,dist:85,tx:18,ty:0}, wide:{yaw:Math.PI*.8,pitch:.62,dist:120,tx:15,ty:0}};
+function mul(a,b){const o=new Float32Array(16);for(let i=0;i<4;i++)for(let j=0;j<4;j++){let s=0;for(let k=0;k<4;k++)s+=a[k*4+j]*b[i*4+k];o[i*4+j]=s;}return o;}
+function persp(fov,asp,n,f){const t=1/Math.tan(fov/2);return new Float32Array([t/asp,0,0,0,0,t,0,0,0,0,(f+n)/(n-f),-1,0,0,2*f*n/(n-f),0]);}
+function look(e,c){const z=norm([e[0]-c[0],e[1]-c[1],e[2]-c[2]]);const x=norm(cross([0,0,1],z));const y=cross(z,x);
+  return new Float32Array([x[0],y[0],z[0],0,x[1],y[1],z[1],0,x[2],y[2],z[2],0,-dot(x,e),-dot(y,e),-dot(z,e),1]);}
+const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2], cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+function norm(a){const l=Math.hypot(a[0],a[1],a[2])||1;return [a[0]/l,a[1]/l,a[2]/l];}
+let VP=new Float32Array(16);
+function updateVP(){
+  const ego=frame?frame.h.ego:[0,0,0]; const c=Math.cos(ego[2]), s=Math.sin(ego[2]);
+  const tx=ego[0]+cam.tx*c-cam.ty*s, ty=ego[1]+cam.tx*s+cam.ty*c;
+  const yaw=cam.yaw+ego[2], cp=Math.cos(cam.pitch);
+  const eye=[tx+cam.dist*cp*Math.cos(yaw), ty+cam.dist*cp*Math.sin(yaw), cam.dist*Math.sin(cam.pitch)];
+  VP=mul(persp(0.75,canvas.width/canvas.height,0.5,600),look(eye,[tx,ty,cam.tz]));
+}
+let drag=null;
+canvas.addEventListener("pointerdown",e=>{drag={x:e.clientX,y:e.clientY,b:e.button||(e.shiftKey?2:0)};canvas.setPointerCapture(e.pointerId);});
+canvas.addEventListener("pointermove",e=>{ if(!drag) return; const dx=e.clientX-drag.x, dy=e.clientY-drag.y; drag.x=e.clientX; drag.y=e.clientY;
+  if(drag.b===2){ const k=cam.dist*0.0016; cam.tx+= (dy*Math.cos(cam.yaw)+dx*Math.sin(cam.yaw))*k*-1; cam.ty+=(dy*Math.sin(cam.yaw)-dx*Math.cos(cam.yaw))*k*-1; }
+  else { cam.yaw-=dx*0.006; cam.pitch=Math.min(1.55,Math.max(0.08,cam.pitch+dy*0.005)); } });
+canvas.addEventListener("pointerup",()=>drag=null);
+canvas.addEventListener("contextmenu",e=>e.preventDefault());
+canvas.addEventListener("wheel",e=>{e.preventDefault(); cam.dist=Math.min(260,Math.max(3,cam.dist*Math.exp(e.deltaY*0.0012)));},{passive:false});
+
+/* ---------------- frame decode ---------------- */
+function decode(buf){
+  const dv=new DataView(buf); const n=dv.getUint32(0,true);
+  const h=JSON.parse(new TextDecoder().decode(new Uint8Array(buf,4,n)));
+  let o=4+n; const nt=dv.getUint32(o,true); o+=4;
+  const tiles=new Int8Array(buf,o,nt*4); o+=nt*4;
+  return {h, tiles, cells:new Uint8Array(buf,o)};
+}
+function setFrame(f){ frame=f; gl.bindBuffer(gl.ARRAY_BUFFER,inst); gl.bufferData(gl.ARRAY_BUFFER,f.cells,gl.DYNAMIC_DRAW); panels(); minimap(); }
+
+/* ---------------- drawing ---------------- */
+function lines(){
+  const h=frame.h, v=[]; const ego=h.ego, c=Math.cos(ego[2]), s=Math.sin(ego[2]);
+  const L=(a,b,col)=>{v.push(...a,...col,...b,...col);};
+  const W=(x,y)=>[ego[0]+x*c-y*s, ego[1]+x*s+y*c];
+  for(const [r,a] of [[10,.55],[20,.4],[40,.3],[100,.22]]){ for(let i=0;i<96;i++){ const t0=i/96*6.2832,t1=(i+1)/96*6.2832;
+      L([ego[0]+r*Math.cos(t0),ego[1]+r*Math.sin(t0),.03],[ego[0]+r*Math.cos(t1),ego[1]+r*Math.sin(t1),.03],[1,.82,.4,a]); } }
+  const [len,hw]=h.corridor; const q=[W(0,-hw),W(len,-hw),W(len,hw),W(0,hw)];
+  for(let i=0;i<4;i++) L([...q[i],.05],[...q[(i+1)%4],.05],[1,.82,.4,.85]);
+  const e=[W(-2.2,-.95),W(2.2,-.95),W(2.2,.95),W(-2.2,.95)];
+  for(let i=0;i<4;i++){ L([...e[i],.1],[...e[(i+1)%4],.1],[1,1,1,1]); L([...e[i],1.6],[...e[(i+1)%4],1.6],[1,1,1,1]); L([...e[i],.1],[...e[i],1.6],[1,1,1,1]); }
+  for(const t of h.tracks){ const col=t.moving?[.3,.72,1,1]:[.6,.66,.74,.6]; const hx=Math.max(t.ex,.5)/2+.15, hy=Math.max(t.ey,.5)/2+.15, zt=t.cls===6?1.8:1.7;
+    const b=[[t.x-hx,t.y-hy],[t.x+hx,t.y-hy],[t.x+hx,t.y+hy],[t.x-hx,t.y+hy]];
+    for(let i=0;i<4;i++){ L([...b[i],.05],[...b[(i+1)%4],.05],col); L([...b[i],zt],[...b[(i+1)%4],zt],col); L([...b[i],.05],[...b[i],zt],col); }
+    if(t.moving){ for(let k=0;k<3;k++) L([t.x,t.y,zt+.02*k],[t.x+t.vx*3,t.y+t.vy*3,zt+.02*k],[.3,.9,1,1]); } }
+  gl.useProgram(LP); gl.uniformMatrix4fv(LU.uVP,false,VP);
+  gl.bindBuffer(gl.ARRAY_BUFFER,lineBuf); gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(v),gl.DYNAMIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0,3,gl.FLOAT,false,28,0); gl.vertexAttribDivisor(0,0);
+  gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1,4,gl.FLOAT,false,28,12); gl.vertexAttribDivisor(1,0);
+  for(const i of [2,3,4,5]) gl.disableVertexAttribArray(i);
+  gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
+  gl.drawArrays(gl.LINES,0,v.length/7); gl.disable(gl.BLEND);
+}
+function labels(){
+  const box=$("labels"); const w=canvas.clientWidth, h=canvas.clientHeight; let html="";
+  for(const t of frame.h.tracks){ if(!t.moving && t.cls!==6) continue;
+    const p=[t.x,t.y,2.1,1]; const c=[0,0,0,0]; for(let i=0;i<4;i++) c[i]=VP[i]*p[0]+VP[4+i]*p[1]+VP[8+i]*p[2]+VP[12+i];
+    if(c[3]<=0) continue; const x=(c[0]/c[3]*.5+.5)*w, y=(1-(c[1]/c[3]*.5+.5))*h; if(x<0||x>w||y<0||y>h) continue;
+    html+=`<div class="tag ${t.moving?"mov":""}" style="left:${x.toFixed(0)}px;top:${y.toFixed(0)}px">${CLS[t.cls]} ${t.moving?t.speed.toFixed(1)+" m/s":"standing"}</div>`; }
+  box.innerHTML=html;
+}
+function draw(now){
+  requestAnimationFrame(draw);
+  const dpr=Math.min(window.devicePixelRatio||1,2), w=Math.round(canvas.clientWidth*dpr), h=Math.round(canvas.clientHeight*dpr);
+  if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;}
+  gl.viewport(0,0,w,h); gl.clearColor(.04,.055,.075,1); gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+  if(!frame) return;
+  updateVP();
+  gl.useProgram(P); gl.uniformMatrix4fv(U.uVP,false,VP); gl.uniform1i(U.uMode,mode); gl.uniform1f(U.uTime,now*.001);
+  gl.uniform3fv(U.uCls,new Float32Array(CLS_COL.flat().map(v=>v/255))); gl.uniform3fv(U.uLv,new Float32Array(LV_COL.flat().map(v=>v/255)));
+  const [nr,nf,no]=frame.h.n;
+  gl.disable(gl.BLEND);
+  if(nf){ bindInst(nr); gl.uniform1i(U.uPass,1); gl.drawArraysInstanced(gl.TRIANGLES,0,6,nf); }
+  if(nr){ bindInst(0); gl.uniform1i(U.uPass,0); gl.drawArraysInstanced(gl.TRIANGLES,0,30,nr); }
+  lines();
+  gl.useProgram(P);
+  if(no){ bindInst(nr+nf); gl.uniform1i(U.uPass,2); gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false);
+    gl.drawArraysInstanced(gl.TRIANGLES,0,6,no); gl.depthMask(true); gl.disable(gl.BLEND); }
+  labels();
+}
+
+/* ---------------- side panels ---------------- */
+const fmt=(v,d=1)=>v>=100?v.toFixed(0):v.toFixed(d);
+function fmtMB(v){ return v>=1000? (v/1000).toFixed(2)+" GB" : fmt(v,v<10?2:1)+" MB"; }
+function panels(){
+  const h=frame.h, ms=h.ms;
+  $("fps").textContent=(1000/ms.total).toFixed(1); $("ms").textContent=ms.total.toFixed(0);
+  const st=Object.keys(ST_NAME); const tot=st.reduce((a,k)=>a+(ms[k]||0),0)||1;
+  $("stbar").innerHTML=st.map(k=>`<div style="width:${(ms[k]||0)/tot*100}%;background:${ST_COL[k]}"></div>`).join("");
+  $("stlist").innerHTML=st.map(k=>`<i style="background:${ST_COL[k]}"></i><span>${ST_NAME[k]}</span><span class="n">${(ms[k]||0).toFixed(1)} ms</span>`).join("");
+  $("ptsnote").textContent=`${h.points.toLocaleString()} returns in, network ran on ${h.net_points.toLocaleString()} voxels (${(h.net_points/h.points*100).toFixed(0)}%). Engine time on this machine, CPU only.`;
+  const b=h.baselines||{}; const rows=[["This map",h.memory_mb,true]];
+  if(b.uniform_5cm_sparse_mb) rows.push(["Uniform 5 cm",b.uniform_5cm_sparse_mb]);
+  if(b.sparse_3d_voxel_5cm_mb) rows.push(["Sparse 3D, 5 cm",b.sparse_3d_voxel_5cm_mb]);
+  if(b.dense_2p5d_5cm_mb) rows.push(["Dense 2.5D, 5 cm",b.dense_2p5d_5cm_mb]);
+  if(b.dense_3d_voxel_5cm_mb) rows.push(["Dense 3D, 5 cm",b.dense_3d_voxel_5cm_mb]);
+  const mx=Math.max(...rows.map(r=>r[1])), lg=v=>Math.max(3,Math.log10(v/0.5)/Math.log10(mx/0.5)*100);
+  $("mem").innerHTML=rows.map(r=>`<div class="brow ${r[2]?"me":""}"><span class="l">${r[0]}</span><div class="bar"><div style="width:${lg(r[1])}%;background:${r[2]?"var(--accent)":"#3a4a5e"}"></div></div><span class="n">${fmtMB(r[1])}</span></div>`).join("");
+  const u=b.uniform_5cm_sparse_mb; $("memnote").textContent=(u?`${(u/h.memory_mb).toFixed(0)}x smaller than the same engine at uniform 5 cm. `:"")+`Bars are log scale. ${h.cells.toLocaleString()} live cells at ${h.bytes_per_cell} bytes.`;
+  const cl=h.cells_per_level, ct=cl.reduce((a,v)=>a+v,0)||1;
+  $("lvbar").innerHTML=cl.map((v,i)=>`<div style="width:${v/ct*100}%;background:${rgb(LV_COL[i])}"></div>`).join("");
+  $("lvlist").innerHTML=cl.map((v,i)=>v?`<i style="background:${rgb(LV_COL[i])}"></i><span>${LV_NAME[i]} cells, ${h.tiles_per_level[i].toLocaleString()} tiles</span><span class="n">${v.toLocaleString()}</span>`:"").join("");
+  const tr=[...h.tracks].sort((a,b)=>(b.moving-a.moving)||(a.dist-b.dist)).slice(0,9);
+  $("trk").innerHTML=tr.map(t=>`<tr><td>${t.id}</td><td class="c" style="color:${rgb(CLS_COL[t.cls])}">${CLS[t.cls]}</td><td>${t.dist.toFixed(0)} m</td><td>${t.speed.toFixed(1)} m/s</td><td class="c"><span class="pill ${t.moving?"mov":""}">${t.moving?"moving":"static"}</span></td></tr>`).join("")||`<tr><td colspan="5" class="c" style="color:var(--dim)">none in view</td></tr>`;
+  const c=h.cleared;
+  $("kv").innerHTML=[["Sweep",h.frame],["Ego speed",h.speed.toFixed(1)+" m/s"],["Drawn cells",(h.n[0]+h.n[1]+h.n[2]).toLocaleString()],["Ghost cells removed",(c.cleared+c.stale+(c.trail||0))],["Policy",h.policy.replace("_"," ")]].map(r=>`<span>${r[0]}</span><span>${r[1]}</span>`).join("");
+  const a=h.alerts, ch=[]; const mv=h.tracks.filter(t=>t.moving).length;
+  if(h.decision && h.decision.state){ const st=h.decision.state; ch.push([st==="CLEAR"?"ok":(st==="STOP"?"crit":"warn"), `${st}: ${h.decision.reason}`]); }
+  if(a.hole!=null) ch.push(["crit",`Pit in path, ${a.hole.toFixed(1)} m ahead`]);
+  if(a.block!=null) ch.push([a.block<15?"crit":"warn",`Obstacle in path, ${a.block.toFixed(1)} m ahead`]);
+  if(a.low!=null) ch.push(["warn",`Low overhead clearance, ${a.low.toFixed(0)} m ahead`]);
+  if(mv) ch.push(["info",`${mv} moving object${mv>1?"s":""} tracked`]);
+  if(!ch.length) ch.push(["ok","Path clear"]);
+  $("chips").innerHTML=ch.map(c=>`<span class="chip ${c[0]}"><i></i>${c[1]}</span>`).join("");
+  $("src").textContent=`${live?"live":"recorded run"} · ${h.engine||"NumPy reference"} · ${h.source||""} · sweep ${h.frame}`;
+  setSeg("policy",h.policy); setSeg("clr",h.clearing_on?"1":"0");
+}
+function minimap(){
+  const cv=$("mini"), g=cv.getContext("2d"), h=frame.h, S=cv.width, half=S/2, sc=half/(100/h.tile);
+  g.fillStyle="#0a0e13"; g.fillRect(0,0,S,S);
+  const t=frame.tiles, yaw=h.ego[2], c=Math.cos(-yaw+Math.PI/2), s=Math.sin(-yaw+Math.PI/2);
+  for(let i=0;i<t.length;i+=4){ const dx=t[i], dy=t[i+1], lv=t[i+2]&255, rk=t[i+3]&255;
+    const x=dx*c-dy*s, y=dx*s+dy*c; const px=half+x*sc, py=half-y*sc;
+    g.fillStyle=rgb(LV_COL[lv]); g.globalAlpha=rk>60?1:.72; g.fillRect(px-sc/2,py-sc/2,sc+.6,sc+.6); }
+  g.globalAlpha=1; g.strokeStyle="rgba(255,255,255,.35)"; g.lineWidth=1;
+  for(const r of [10,20,40,100]){ g.beginPath(); g.arc(half,half,r/h.tile*sc,0,6.2832); g.stroke(); }
+  g.fillStyle="#fff"; g.beginPath(); g.moveTo(half,half-6); g.lineTo(half+4,half+5); g.lineTo(half-4,half+5); g.fill();
+}
+const LEG={0:["Semantic class",CLS.map((n,i)=>[rgb(CLS_COL[i]),n]).concat([["rgb(235,51,219)","pit / trench"],["rgb(107,184,255)","overhead"]])],
+  5:["Can the vehicle drive here?",[["rgb(41,158,107)","drivable"],["rgb(204,153,56)","rough terrain"],["rgb(242,71,84)","blocked"],["rgb(235,51,219)","pit / trench"],["rgb(64,204,255)","moving"],["rgb(107,184,255)","overhead, passable"]]],
+  2:["Cell size the map chose",LV_NAME.slice(0,5).map((n,i)=>[rgb(LV_COL[i]),n])],
+  3:["Risk score driving the resolution",[["rgb(26,36,51)","none"],["rgb(64,89,191)","in path"],["rgb(255,184,51)","hazard / moving"],["rgb(255,64,77)","predicted conflict"]]],
+  1:["Height above the road",[["rgb(33,41,92)","-0.4 m"],["rgb(38,128,143)","1.2 m"],["rgb(122,204,97)","2.9 m"],["rgb(252,224,77)","4.6 m+"]]],
+  4:["Class confidence",[["rgb(242,64,77)","low"],["rgb(51,217,128)","high"],["rgb(64,69,77)","unclassified"]]]};
+function legend(){ const [t,k]=LEG[mode]; $("legT").textContent=t; $("legR").innerHTML=k.map(e=>`<span class="k"><i style="background:${e[0]}"></i>${e[1]}</span>`).join(""); }
+function setSeg(id,v){ for(const b of $(id).children) b.classList.toggle("on",b.dataset.v===String(v)); }
+function seg(id,fn){ $(id).addEventListener("click",e=>{ const b=e.target.closest("button"); if(!b) return; setSeg(id,b.dataset.v); fn(b.dataset.v); }); }
+seg("mode",v=>{mode=+v; legend();});
+seg("cam",v=>Object.assign(cam,PRESET[v]));
+seg("policy",v=>control({policy:v}));
+seg("clr",v=>control({clearing:v}));
+addEventListener("keydown",e=>{ const m={"1":0,"2":5,"3":2,"4":3,"5":1,"6":4}[e.key]; if(m!==undefined){mode=m; setSeg("mode",m); legend();} if(e.key===" "){ e.preventDefault(); togglePause(); } });
+
+/* ---------------- data sources ---------------- */
+function control(q){ if(!live) return; fetch("/control?"+new URLSearchParams(q)).catch(()=>{}); }
+async function pollLive(){
+  let last=-1, misses=0;
+  for(;;){
+    try{ const r=await fetch("/frame?after="+last,{cache:"no-store"});
+      if(r.status===200){ const f=decode(await r.arrayBuffer()); last=f.h.seq; setFrame(f); misses=0; }
+      else await new Promise(s=>setTimeout(s,30));
+    }catch(e){ if(++misses>20) $("src").textContent="server not reachable, retrying"; await new Promise(s=>setTimeout(s,400)); }
+  }
+}
+function togglePause(){ paused=!paused; $("play").textContent=paused?"Play":"Pause"; if(live) control({pause:paused?1:0}); }
+async function gunzip(b64){ const bin=Uint8Array.from(atob(b64),c=>c.charCodeAt(0));
+  const s=new Blob([bin]).stream().pipeThrough(new DecompressionStream("gzip")); return await new Response(s).arrayBuffer(); }
+async function playReplay(list,dt){
+  live=false; $("scrub").style.display="flex"; for(const id of ["policy","clr"]) $(id).style.display="none";
+  const frames=[]; $("src").textContent="unpacking recorded run";
+  for(const b of list) frames.push(decode(await gunzip(b)));
+  const pos=$("pos"); pos.max=frames.length-1; let i=0;
+  pos.addEventListener("input",()=>{ i=+pos.value; setFrame(frames[i]); });
+  setFrame(frames[0]);
+  setInterval(()=>{ if(paused) return; i=(i+1)%frames.length; pos.value=i; setFrame(frames[i]); }, dt);
+}
+$("play").addEventListener("click",togglePause);
+if(gl){ try{ initGL(); legend(); requestAnimationFrame(draw);
+    if(window.TF_REPLAY){ if(typeof DecompressionStream==="undefined") fail("This recorded run needs a current browser (DecompressionStream)."); else playReplay(window.TF_REPLAY, window.TF_REPLAY_DT||400); }
+    else pollLive();
+  }catch(e){ fail("Could not start the 3D view: "+e.message); } }
+</script>
+</body>
+</html>
